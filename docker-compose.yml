@@ -17,8 +17,8 @@ services:
 
   app:
     build: .
-    ports:
-      - "${APP_PORT:-8000}:8000"
+    expose:
+      - "8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/email_gateway
       BASE_URL: ${BASE_URL:-http://localhost:8000}
@@ -32,8 +32,6 @@ services:
       WEBHOOK_TIMEOUT_SECONDS: ${WEBHOOK_TIMEOUT_SECONDS:-30}
     volumes:
       - email_storage:/app/storage
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       db:
         condition: service_healthy
