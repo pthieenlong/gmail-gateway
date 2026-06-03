@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Webhooks
     WEBHOOK_TIMEOUT_SECONDS: int = 30
 
+    # API Key bảo vệ các endpoint quản trị (webhooks CRUD, dev inject...)
+    # Để trống = không cần xác thực (chỉ dùng cho local/dev)
+    ADMIN_API_KEY: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"
