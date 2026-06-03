@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile app/config.py app/database.py app/models/email.py app/models/attachment.py app/models/webhook.py app/models/webhook_delivery.py app/models/__init__.py app/schemas/common.py app/schemas/attachment.py app/schemas/email.py app/schemas/webhook.py app/schemas/webhook_delivery.py app/services/attachment_storage.py app/services/email_fetcher.py app/services/webhook_dispatcher.py app/services/email_poller.py app/api/routes/emails.py app/api/routes/attachments.py app/api/routes/webhooks.py app/api/routes/webhook_deliveries.py app/api/routes/operations.py app/main.py alembic/env.py alembic/versions/001_initial_schema.py)"
+    ]
+  }
+}
