@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/email_gateway"
 
-    # Email provider: "imap" or "gmail"
+    # Email provider: "imap", "gmail", or "graph" (Outlook / Microsoft 365)
     EMAIL_PROVIDER: str = "imap"
 
     # IMAP
@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     # Gmail API
     GMAIL_CREDENTIALS_FILE: str = "credentials.json"
     GMAIL_TOKEN_FILE: str = "token.json"
+
+    # Microsoft Graph API (Outlook / Microsoft 365) — app-only (client credentials)
+    GRAPH_TENANT_ID: str = ""
+    GRAPH_CLIENT_ID: str = ""
+    GRAPH_CLIENT_SECRET: str = ""
+    # The mailbox to read, e.g. inbox@your-domain.com (or the user's object id)
+    GRAPH_USER_ID: str = ""
 
     # Storage
     STORAGE_PATH: str = "./storage"

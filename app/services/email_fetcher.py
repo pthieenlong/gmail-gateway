@@ -265,3 +265,160 @@ class GmailAPIFetcher:
 
     def close(self):
         self._pool.shutdown(wait=False)
+
+
+# ─────────────────────────── Microsoft Graph API ────────────────────────────
+
+class GraphAPIFetcher:
+    """
+    Microsoft Graph API fetcher for Outlook / Microsoft 365 mailboxes.
+
+    Uses app-only (client credentials) OAuth 2.0 — no interactive login, suited
+    for an unattended service. Microsoft has retired Basic Auth for IMAP/POP on
+    Exchange Online, so Graph is the supported way to read an M365 mailbox.
+
+    Azure setup:
+      1. Entra admin center → App registrations → New registration
+      2. Certificates & secrets → New client secret  → GRAPH_CLIENT_SECRET
+      3. API permissions → Microsoft Graph → Application → Mail.ReadWrite
+         → Grant admin consent
+      4. Set GRAPH_TENANT_ID, GRAPH_CLIENT_ID, GRAPH_USER_ID (the mailbox).
+
+    Note: app-only Mail.ReadWrite grants access to *all* mailboxes by default.
+    To scope it to a single mailbox, configure an Application Access Policy in
+    Exchange Online.
+    """
+
+    _SCOPE = ["https://graph.microsoft.com/.default"]
+    _GRAPH = "https://graph.microsoft.com/v1.0"
+
+    def _token(self) -> str:
+        import msal
+
+        app = msal.ConfidentialClientApplication(
+            client_id=settings.GRAPH_CLIENT_ID,
+            client_credential=settings.GRAPH_CLIENT_SECRET,
+            authority=f"https://login.microsoftonline.com/{settings.GRAPH_TENANT_ID}",
+        )
+        # MSAL caches the token internally and only hits the IdP on cache miss.
+        result = app.acquire_token_for_client(scopes=self._SCOPE)
+        if "access_token" not in result:
+            raise RuntimeError(
+                "Graph auth failed: "
+                f"{result.get('error')} — {result.get('error_description')}"
+            )
+        return result["access_token"]
+
+    def _fetch(self) -> List[Dict[str, Any]]:
+        import requests
+
+        headers = {"Authorization": f"Bearer {self._token()}"}
+        base = f"{self._GRAPH}/users/{settings.GRAPH_USER_ID}"
+        results: List[Dict[str, Any]] = []
+
+        resp = requests.get(
+            f"{base}/mailFolders/inbox/messages",
+            headers=headers,
+            params={
+                "$filter": "isRead eq false",
+                "$top": "50",
+                "$select": (
+                    "id,internetMessageId,subject,body,bodyPreview,"
+                    "from,toRecipients,receivedDateTime,hasAttachments"
+                ),
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        messages = resp.json().get("value", [])
+
+        for msg in messages:
+            try:
+                from_addr = (msg.get("from") or {}).get("emailAddress") or {}
+                to_list = msg.get("toRecipients") or []
+                recipient = (
+                    (to_list[0].get("emailAddress") or {}).get("address")
+                    if to_list else settings.GRAPH_USER_ID
+                )
+
+                try:
+                    received_at = datetime.fromisoformat(
+                        msg["receivedDateTime"].replace("Z", "+00:00")
+                    )
+                except Exception:
+                    received_at = datetime.now(timezone.utc)
+
+                attachments = (
+                    self._fetch_attachments(base, headers, msg["id"])
+                    if msg.get("hasAttachments")
+                    else []
+                )
+
+                results.append(
+                    {
+                        "message_id": (
+                            msg.get("internetMessageId") or msg["id"]
+                        ).strip(),
+                        "sender_email": from_addr.get("address", ""),
+                        "sender_name": from_addr.get("name", ""),
+                        "recipient_email": recipient,
+                        "subject": msg.get("subject", ""),
+                        "body": (msg.get("body") or {}).get(
+                            "content", msg.get("bodyPreview", "")
+                        ),
+                        "received_at": received_at,
+                        "attachments": attachments,
+                    }
+                )
+
+                # Mark as read
+                requests.patch(
+                    f"{base}/messages/{msg['id']}",
+                    headers=headers,
+                    json={"isRead": True},
+                    timeout=30,
+                ).raise_for_status()
+
+            except Exception as exc:
+                logger.error("Failed to parse Graph message %s: %s", msg.get("id"), exc)
+
+        return results
+
+    @staticmethod
+    def _fetch_attachments(base: str, headers: dict, msg_id: str) -> List[Dict[str, Any]]:
+        import base64
+        import requests
+
+        resp = requests.get(
+            f"{base}/messages/{msg_id}/attachments",
+            headers=headers,
+            timeout=30,
+        )
+        resp.raise_for_status()
+
+        out: List[Dict[str, Any]] = []
+        for att in resp.json().get("value", []):
+            # Only fileAttachment carries inline bytes; skip itemAttachment / reference.
+            if att.get("@odata.type") != "#microsoft.graph.fileAttachment":
+                continue
+            content_bytes = att.get("contentBytes")
+            if not content_bytes:
+                continue
+            out.append(
+                {
+                    "filename": att.get("name", "attachment"),
+                    "content": base64.b64decode(content_bytes),
+                    "mime_type": att.get("contentType"),
+                }
+            )
+        return out
+
+    def __init__(self):
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="graph")
+
+    async def fetch_unread_emails(self) -> List[Dict[str, Any]]:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self._pool, self._fetch)
+
+    def close(self):
+        self._pool.shutdown(wait=False)

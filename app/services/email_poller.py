@@ -100,6 +100,20 @@ async def run_one_cycle(
 ) -> int:
     if settings.EMAIL_PROVIDER == "gmail":
         from app.services.email_fetcher import GmailAPIFetcher as Fetcher
+    elif settings.EMAIL_PROVIDER == "graph":
+        if not all(
+            (settings.GRAPH_TENANT_ID, settings.GRAPH_CLIENT_ID,
+             settings.GRAPH_CLIENT_SECRET, settings.GRAPH_USER_ID)
+        ):
+            # Credentials not configured yet (e.g. waiting on IT/admin).
+            # Skip polling instead of crashing — the rest of the API stays usable
+            # and you can still test via POST /api/dev/inject-email.
+            logger.warning(
+                "EMAIL_PROVIDER=graph but GRAPH_* credentials are not set — "
+                "skipping poll cycle."
+            )
+            return 0
+        from app.services.email_fetcher import GraphAPIFetcher as Fetcher
     else:
         from app.services.email_fetcher import IMAPEmailFetcher as Fetcher
 

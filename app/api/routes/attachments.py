@@ -70,3 +70,33 @@ async def download_attachment(
         media_type=att.mime_type or "application/octet-stream",
         headers=headers,
     )
+
+
+@router.get("/{attachment_id}/view")
+async def view_attachment(
+    attachment_id: int, db: AsyncSession = Depends(get_db)
+):
+    att = await db.get(Attachment, attachment_id)
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    path = Path(att.filepath)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    async def _stream():
+        async with aiofiles.open(path, "rb") as f:
+            while chunk := await f.read(65_536):
+                yield chunk
+
+    headers = {
+        "Content-Disposition": f'inline; filename="{att.filename}"',
+    }
+    if att.file_size:
+        headers["Content-Length"] = str(att.file_size)
+
+    return StreamingResponse(
+        _stream(),
+        media_type=att.mime_type or "application/octet-stream",
+        headers=headers,
+    )
