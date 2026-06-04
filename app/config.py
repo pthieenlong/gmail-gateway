@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     GRAPH_CLIENT_SECRET: str = ""
     # The mailbox to read, e.g. inbox@your-domain.com (or the user's object id)
     GRAPH_USER_ID: str = ""
+    # Comma-separated list of attachment extensions to accept (empty = accept all)
+    GRAPH_ATTACHMENT_TYPES: str = ".xlsx,.xls,.pdf"
 
     # Storage
     STORAGE_PATH: str = "./storage"

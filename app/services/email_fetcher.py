@@ -309,18 +309,30 @@ class GraphAPIFetcher:
             )
         return result["access_token"]
 
+    @staticmethod
+    def _allowed_extensions() -> set:
+        raw = settings.GRAPH_ATTACHMENT_TYPES.strip()
+        if not raw:
+            return set()
+        return {ext.strip().lower() for ext in raw.split(",")}
+
     def _fetch(self) -> List[Dict[str, Any]]:
         import requests
+        from pathlib import Path
 
         headers = {"Authorization": f"Bearer {self._token()}"}
         base = f"{self._GRAPH}/users/{settings.GRAPH_USER_ID}"
         results: List[Dict[str, Any]] = []
+        allowed_exts = self._allowed_extensions()
+
+        # Only pull messages that have attachments — avoids fetching emails we'll skip
+        graph_filter = "isRead eq false AND hasAttachments eq true" if allowed_exts else "isRead eq false"
 
         resp = requests.get(
             f"{base}/mailFolders/inbox/messages",
             headers=headers,
             params={
-                "$filter": "isRead eq false",
+                "$filter": graph_filter,
                 "$top": "50",
                 "$select": (
                     "id,internetMessageId,subject,body,bodyPreview,"
@@ -353,6 +365,17 @@ class GraphAPIFetcher:
                     if msg.get("hasAttachments")
                     else []
                 )
+
+                # Skip email if none of its attachments match the allowed extensions
+                if allowed_exts and not any(
+                    Path(a["filename"]).suffix.lower() in allowed_exts
+                    for a in attachments
+                ):
+                    logger.debug(
+                        "Skipping message %s — no matching attachment extensions (%s)",
+                        msg.get("id"), settings.GRAPH_ATTACHMENT_TYPES,
+                    )
+                    continue
 
                 results.append(
                     {
