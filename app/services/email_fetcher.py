@@ -316,19 +316,20 @@ class GraphAPIFetcher:
             return set()
         return {ext.strip().lower() for ext in raw.split(",")}
 
-    def _fetch(self) -> List[Dict[str, Any]]:
-        import requests
+    def _fetch_mailbox(
+        self,
+        requests_mod,
+        headers: dict,
+        mailbox: str,
+        allowed_exts: set,
+        graph_filter: str,
+    ) -> List[Dict[str, Any]]:
         from pathlib import Path
 
-        headers = {"Authorization": f"Bearer {self._token()}"}
-        base = f"{self._GRAPH}/users/{settings.GRAPH_USER_ID}"
+        base = f"{self._GRAPH}/users/{mailbox}"
         results: List[Dict[str, Any]] = []
-        allowed_exts = self._allowed_extensions()
 
-        # Only pull messages that have attachments — avoids fetching emails we'll skip
-        graph_filter = "isRead eq false AND hasAttachments eq true" if allowed_exts else "isRead eq false"
-
-        resp = requests.get(
+        resp = requests_mod.get(
             f"{base}/mailFolders/inbox/messages",
             headers=headers,
             params={
@@ -342,15 +343,14 @@ class GraphAPIFetcher:
             timeout=30,
         )
         resp.raise_for_status()
-        messages = resp.json().get("value", [])
 
-        for msg in messages:
+        for msg in resp.json().get("value", []):
             try:
                 from_addr = (msg.get("from") or {}).get("emailAddress") or {}
                 to_list = msg.get("toRecipients") or []
                 recipient = (
                     (to_list[0].get("emailAddress") or {}).get("address")
-                    if to_list else settings.GRAPH_USER_ID
+                    if to_list else mailbox
                 )
 
                 try:
@@ -366,7 +366,6 @@ class GraphAPIFetcher:
                     else []
                 )
 
-                # Skip email if none of its attachments match the allowed extensions
                 if allowed_exts and not any(
                     Path(a["filename"]).suffix.lower() in allowed_exts
                     for a in attachments
@@ -394,8 +393,7 @@ class GraphAPIFetcher:
                     }
                 )
 
-                # Mark as read
-                requests.patch(
+                requests_mod.patch(
                     f"{base}/messages/{msg['id']}",
                     headers=headers,
                     json={"isRead": True},
@@ -403,7 +401,30 @@ class GraphAPIFetcher:
                 ).raise_for_status()
 
             except Exception as exc:
-                logger.error("Failed to parse Graph message %s: %s", msg.get("id"), exc)
+                logger.error(
+                    "Failed to parse Graph message %s (mailbox=%s): %s",
+                    msg.get("id"), mailbox, exc,
+                )
+
+        return results
+
+    def _fetch(self) -> List[Dict[str, Any]]:
+        import requests
+
+        headers = {"Authorization": f"Bearer {self._token()}"}
+        allowed_exts = self._allowed_extensions()
+        graph_filter = "isRead eq false AND hasAttachments eq true" if allowed_exts else "isRead eq false"
+
+        mailboxes = [m.strip() for m in settings.GRAPH_USER_ID.split(",") if m.strip()]
+        results: List[Dict[str, Any]] = []
+
+        for mailbox in mailboxes:
+            try:
+                results.extend(
+                    self._fetch_mailbox(requests, headers, mailbox, allowed_exts, graph_filter)
+                )
+            except Exception as exc:
+                logger.error("Failed to fetch mailbox %s: %s", mailbox, exc)
 
         return results
 

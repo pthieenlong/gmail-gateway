@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     GRAPH_TENANT_ID: str = ""
     GRAPH_CLIENT_ID: str = ""
     GRAPH_CLIENT_SECRET: str = ""
-    # The mailbox to read, e.g. inbox@your-domain.com (or the user's object id)
+    # Comma-separated list of mailboxes to read, e.g. inbox1@company.com,inbox2@company.com
     GRAPH_USER_ID: str = ""
     # Comma-separated list of attachment extensions to accept (empty = accept all)
     GRAPH_ATTACHMENT_TYPES: str = ".xlsx,.xls,.pdf"
