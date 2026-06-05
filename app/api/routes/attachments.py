@@ -1,4 +1,6 @@
+import unicodedata
 from pathlib import Path
+from urllib.parse import quote
 
 import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,6 +14,28 @@ from app.models.attachment import Attachment
 from app.schemas.attachment import AttachmentResponse
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
+
+
+def _content_disposition(disposition: str, filename: str) -> str:
+    """Build a Content-Disposition header that is safe for HTTP (latin-1 only).
+
+    Per RFC 6266 / RFC 5987: provide an ASCII fallback in ``filename`` and the
+    full UTF-8 name in ``filename*`` so non-ASCII names (e.g. Vietnamese with
+    diacritics) don't crash the latin-1 header encoding.
+    """
+    # ASCII fallback: strip diacritics, drop anything still non-ASCII, and
+    # remove quotes/control chars that would break the header.
+    ascii_name = (
+        unicodedata.normalize("NFKD", filename)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    ascii_name = ascii_name.replace('"', "").replace("\\", "") or "download"
+    utf8_name = quote(filename, safe="")
+    return (
+        f"{disposition}; filename=\"{ascii_name}\"; "
+        f"filename*=UTF-8''{utf8_name}"
+    )
 
 
 def _enrich(att: Attachment) -> dict:
@@ -61,7 +85,7 @@ async def download_attachment(
                 yield chunk
 
     headers = {
-        "Content-Disposition": f'attachment; filename="{att.filename}"',
+        "Content-Disposition": _content_disposition("attachment", att.filename),
     }
     if att.file_size:
         headers["Content-Length"] = str(att.file_size)
@@ -91,7 +115,7 @@ async def view_attachment(
                 yield chunk
 
     headers = {
-        "Content-Disposition": f'inline; filename="{att.filename}"',
+        "Content-Disposition": _content_disposition("inline", att.filename),
     }
     if att.file_size:
         headers["Content-Length"] = str(att.file_size)
