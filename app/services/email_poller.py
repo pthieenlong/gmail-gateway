@@ -53,6 +53,8 @@ async def _process_one(
         sender_email=email_data["sender_email"],
         sender_name=email_data.get("sender_name"),
         recipient_email=email_data["recipient_email"],
+        cc_emails=email_data.get("cc_emails"),
+        delivered_via=email_data.get("delivered_via"),
         subject=email_data.get("subject"),
         body=email_data.get("body"),
         received_at=email_data.get("received_at"),

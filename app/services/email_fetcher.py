@@ -57,6 +57,12 @@ def _get_body(msg) -> str:
     return ""
 
 
+def _cc_emails(msg) -> str | None:
+    """Comma-separated CC addresses from an email.message, or None."""
+    cc = [addr for _, addr in getaddresses(msg.get_all("Cc", [])) if addr]
+    return ", ".join(cc) or None
+
+
 def _get_attachments(msg) -> List[Dict[str, Any]]:
     results = []
     for part in msg.walk():
@@ -118,6 +124,7 @@ def _imap_fetch() -> List[Dict[str, Any]]:
                         "sender_email": sender_email,
                         "sender_name": sender_name,
                         "recipient_email": recipient,
+                        "cc_emails": _cc_emails(msg),
                         "subject": _decode_str(msg.get("Subject", "")),
                         "body": _get_body(msg),
                         "received_at": received_at,
@@ -237,6 +244,7 @@ class GmailAPIFetcher:
                         "sender_email": sender_email,
                         "sender_name": sender_name,
                         "recipient_email": recipient,
+                        "cc_emails": _cc_emails(msg),
                         "subject": _decode_str(msg.get("Subject", "")),
                         "body": _get_body(msg),
                         "received_at": received_at,
@@ -338,7 +346,7 @@ class GraphAPIFetcher:
                 "$top": "50",
                 "$select": (
                     "id,internetMessageId,subject,body,bodyPreview,"
-                    "from,toRecipients,receivedDateTime,hasAttachments"
+                    "from,toRecipients,ccRecipients,receivedDateTime,hasAttachments"
                 ),
             },
             timeout=30,
@@ -348,11 +356,37 @@ class GraphAPIFetcher:
         for msg in resp.json().get("value", []):
             try:
                 from_addr = (msg.get("from") or {}).get("emailAddress") or {}
-                to_list = msg.get("toRecipients") or []
-                recipient = (
-                    (to_list[0].get("emailAddress") or {}).get("address")
-                    if to_list else mailbox
-                )
+
+                def _addrs(key: str) -> List[str]:
+                    return [
+                        addr
+                        for r in (msg.get(key) or [])
+                        if (addr := (r.get("emailAddress") or {}).get("address"))
+                    ]
+
+                to_emails = _addrs("toRecipients")
+                cc_emails = _addrs("ccRecipients")
+                recipient = to_emails[0] if to_emails else mailbox
+
+                # Was the scanned mailbox addressed directly (To) or only CC'd?
+                mailbox_l = mailbox.lower()
+                if any(a.lower() == mailbox_l for a in to_emails):
+                    delivered_via = "to"
+                elif any(a.lower() == mailbox_l for a in cc_emails):
+                    delivered_via = "cc"
+                else:
+                    delivered_via = None  # bcc / forwarded / group alias
+
+                # Only keep mail where this mailbox is a direct recipient (To).
+                # CC-only / bcc / alias mail is skipped — if it was To'd to another
+                # configured mailbox, that mailbox's own scan will pick it up.
+                if delivered_via != "to":
+                    logger.debug(
+                        "Skipping message %s — mailbox %s is not a To recipient "
+                        "(delivered_via=%s)",
+                        msg.get("id"), mailbox, delivered_via,
+                    )
+                    continue
 
                 try:
                     received_at = datetime.fromisoformat(
@@ -385,6 +419,8 @@ class GraphAPIFetcher:
                         "sender_email": from_addr.get("address", ""),
                         "sender_name": from_addr.get("name", ""),
                         "recipient_email": recipient,
+                        "cc_emails": ", ".join(cc_emails) or None,
+                        "delivered_via": delivered_via,
                         "subject": msg.get("subject", ""),
                         "body": (msg.get("body") or {}).get(
                             "content", msg.get("bodyPreview", "")
