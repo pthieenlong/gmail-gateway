@@ -334,6 +334,7 @@ class GraphAPIFetcher:
             headers=headers,
             params={
                 "$filter": graph_filter,
+                "$orderby": "receivedDateTime desc",
                 "$top": "50",
                 "$select": (
                     "id,internetMessageId,subject,body,bodyPreview,"
@@ -393,12 +394,8 @@ class GraphAPIFetcher:
                     }
                 )
 
-                requests_mod.patch(
-                    f"{base}/messages/{msg['id']}",
-                    headers=headers,
-                    json={"isRead": True},
-                    timeout=30,
-                ).raise_for_status()
+                # No mark-as-read: the app only has Mail.Read (read-only). Re-fetching
+                # within the lookback window is deduped by the message_id guard in the DB.
 
             except Exception as exc:
                 logger.error(
@@ -410,10 +407,19 @@ class GraphAPIFetcher:
 
     def _fetch(self) -> List[Dict[str, Any]]:
         import requests
+        from datetime import timedelta
 
         headers = {"Authorization": f"Bearer {self._token()}"}
         allowed_exts = self._allowed_extensions()
-        graph_filter = "isRead eq false AND hasAttachments eq true" if allowed_exts else "isRead eq false"
+
+        # Read-only: filter by receivedDateTime (last N minutes) instead of isRead,
+        # since we can't mark messages read without write permission.
+        since = (
+            datetime.now(timezone.utc) - timedelta(minutes=settings.GRAPH_LOOKBACK_MINUTES)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        graph_filter = f"receivedDateTime ge {since}"
+        if allowed_exts:
+            graph_filter += " AND hasAttachments eq true"
 
         mailboxes = [m.strip() for m in settings.GRAPH_USER_ID.split(",") if m.strip()]
         results: List[Dict[str, Any]] = []

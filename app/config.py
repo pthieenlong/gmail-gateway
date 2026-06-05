@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     GRAPH_USER_ID: str = ""
     # Comma-separated list of attachment extensions to accept (empty = accept all)
     GRAPH_ATTACHMENT_TYPES: str = ".xlsx,.xls,.pdf"
+    # Read-only mode: fetch emails received within the last N minutes. The app only
+    # has Mail.Read (no write), so it can't mark messages read; dedup is handled by
+    # the message_id guard in the DB. Keep this comfortably larger than POLL_INTERVAL
+    # so nothing is missed if the poller pauses briefly.
+    GRAPH_LOOKBACK_MINUTES: int = 10
 
     # Storage
     STORAGE_PATH: str = "./storage"

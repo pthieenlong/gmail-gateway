@@ -36,6 +36,7 @@ services:
       GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
       GRAPH_USER_ID: ${GRAPH_USER_ID:-}
       GRAPH_ATTACHMENT_TYPES: ${GRAPH_ATTACHMENT_TYPES:-.xlsx,.xls,.pdf}
+      GRAPH_LOOKBACK_MINUTES: ${GRAPH_LOOKBACK_MINUTES:-10}
     volumes:
       - email_storage:/app/storage
     depends_on:
