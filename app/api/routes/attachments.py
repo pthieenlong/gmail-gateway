@@ -17,6 +17,7 @@ router = APIRouter(prefix="/attachments", tags=["attachments"])
 def _enrich(att: Attachment) -> dict:
     data = AttachmentResponse.model_validate(att).model_dump()
     data["download_url"] = f"{settings.BASE_URL}/api/attachments/{att.id}/download"
+    data["view_url"] = f"{settings.BASE_URL}/api/attachments/{att.id}/view"
     return data
 
 

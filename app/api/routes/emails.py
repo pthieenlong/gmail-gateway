@@ -18,6 +18,7 @@ router = APIRouter(prefix="/emails", tags=["emails"])
 def _with_download_url(att) -> dict:
     data = AttachmentResponse.model_validate(att).model_dump()
     data["download_url"] = f"{settings.BASE_URL}/api/attachments/{att.id}/download"
+    data["view_url"] = f"{settings.BASE_URL}/api/attachments/{att.id}/view"
     return data
 
 

@@ -16,3 +16,4 @@ class AttachmentResponse(BaseModel):
     checksum: Optional[str] = None
     created_at: datetime
     download_url: Optional[str] = None
+    view_url: Optional[str] = None
