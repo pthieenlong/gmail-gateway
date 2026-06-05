@@ -24,9 +24,11 @@ def _content_disposition(disposition: str, filename: str) -> str:
     diacritics) don't crash the latin-1 header encoding.
     """
     # ASCII fallback: strip diacritics, drop anything still non-ASCII, and
-    # remove quotes/control chars that would break the header.
+    # remove quotes/control chars that would break the header. NFKD doesn't
+    # decompose the Vietnamese "đ/Đ", so map those explicitly first.
+    pre = filename.translate(str.maketrans("đĐ", "dD"))
     ascii_name = (
-        unicodedata.normalize("NFKD", filename)
+        unicodedata.normalize("NFKD", pre)
         .encode("ascii", "ignore")
         .decode("ascii")
     )
