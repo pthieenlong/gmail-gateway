@@ -366,7 +366,10 @@ class GraphAPIFetcher:
 
                 to_emails = _addrs("toRecipients")
                 cc_emails = _addrs("ccRecipients")
-                recipient = to_emails[0] if to_emails else mailbox
+                # The scanned mailbox is the recipient we care about, not
+                # to_emails[0] (which is just whoever happens to be first in the
+                # To header — often an unrelated address on a multi-recipient mail).
+                recipient = mailbox
 
                 # Was the scanned mailbox addressed directly (To) or only CC'd?
                 mailbox_l = mailbox.lower()
