@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models.email import Email
 from app.schemas.attachment import AttachmentResponse
 from app.schemas.common import PaginatedResponse
-from app.schemas.email import EmailListResponse, EmailResponse
+from app.schemas.email import EmailListResponse, EmailResponse, MailboxGroup
 
 router = APIRouter(prefix="/emails", tags=["emails"])
 
@@ -22,7 +22,7 @@ def _with_download_url(att) -> dict:
     return data
 
 
-@router.get("", response_model=PaginatedResponse[EmailListResponse])
+@router.get("", response_model=PaginatedResponse[MailboxGroup])
 async def list_emails(
     sender_email: Optional[str] = Query(default=None),
     subject: Optional[str] = Query(default=None),
@@ -58,8 +58,19 @@ async def list_emails(
         )
     ).scalars().all()
 
+    # Group the page's emails by the mailbox they were scanned from
+    # (recipient_email). Insertion order is preserved, so groups follow the
+    # received_at desc ordering of their first email.
+    groups: dict[str, MailboxGroup] = {}
+    for r in rows:
+        group = groups.get(r.recipient_email)
+        if group is None:
+            group = MailboxGroup(email=r.recipient_email, data=[])
+            groups[r.recipient_email] = group
+        group.data.append(EmailListResponse.model_validate(r))
+
     return PaginatedResponse(
-        items=[EmailListResponse.model_validate(r) for r in rows],
+        items=list(groups.values()),
         total=total,
         page=page,
         size=size,

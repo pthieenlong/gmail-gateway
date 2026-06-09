@@ -38,3 +38,10 @@ class EmailListResponse(BaseModel):
     received_at: Optional[datetime] = None
     processed_at: Optional[datetime] = None
     created_at: datetime
+
+
+class MailboxGroup(BaseModel):
+    """Emails grouped by the mailbox they were scanned from (recipient_email)."""
+
+    email: str
+    data: List[EmailListResponse]
