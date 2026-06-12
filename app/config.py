@@ -29,8 +29,9 @@ class Settings(BaseSettings):
     GRAPH_CLIENT_SECRET: str = ""
     # Comma-separated list of mailboxes to read, e.g. inbox1@company.com,inbox2@company.com
     GRAPH_USER_ID: str = ""
-    # Comma-separated list of attachment extensions to accept (empty = accept all)
-    GRAPH_ATTACHMENT_TYPES: str = ".xlsx,.xls,.pdf"
+    # Comma-separated list of attachment extensions to accept (empty = accept all
+    # emails, with or without attachments — this is the default).
+    GRAPH_ATTACHMENT_TYPES: str = ""
     # Read-only mode: fetch emails received within the last N minutes. The app only
     # has Mail.Read (no write), so it can't mark messages read; dedup is handled by
     # the message_id guard in the DB. Keep this comfortably larger than POLL_INTERVAL

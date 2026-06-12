@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -96,6 +96,20 @@ async def _process_one(
 
 # ── Poll cycle ────────────────────────────────────────────────────────────────
 
+async def _graph_watermarks() -> Dict[str, datetime]:
+    """Newest received_at per mailbox already in the DB, keyed by lowercased
+    mailbox address. Used to fetch only mail newer than what we have, so a poll
+    gap of any length never loses email. For graph, recipient_email is the
+    scanned mailbox (see GraphAPIFetcher._fetch_mailbox)."""
+    async with async_session() as db:
+        rows = await db.execute(
+            select(Email.recipient_email, func.max(Email.received_at))
+            .where(Email.received_at.isnot(None))
+            .group_by(Email.recipient_email)
+        )
+    return {mailbox.lower(): newest for mailbox, newest in rows.all() if mailbox}
+
+
 async def run_one_cycle(
     storage: AttachmentStorageService,
     dispatcher: WebhookDispatcher,
@@ -119,9 +133,17 @@ async def run_one_cycle(
     else:
         from app.services.email_fetcher import IMAPEmailFetcher as Fetcher
 
+    # Graph is read-only (no mark-as-read), so we tell the fetcher how far we've
+    # already ingested per mailbox — the newest received_at in the DB — and it
+    # fetches only newer mail. This is gap-proof: an outage of any length is
+    # caught up on the next cycle, with no email lost to a fixed lookback window.
+    watermarks: Dict[str, datetime] = {}
+    if settings.EMAIL_PROVIDER == "graph":
+        watermarks = await _graph_watermarks()
+
     fetcher = Fetcher()
     try:
-        emails = await fetcher.fetch_unread_emails()
+        emails = await fetcher.fetch_unread_emails(watermarks)
     finally:
         fetcher.close()
 

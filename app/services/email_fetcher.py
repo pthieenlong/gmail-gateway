@@ -150,7 +150,8 @@ class IMAPEmailFetcher:
     def __init__(self):
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="imap")
 
-    async def fetch_unread_emails(self) -> List[Dict[str, Any]]:
+    async def fetch_unread_emails(self, watermarks=None) -> List[Dict[str, Any]]:
+        # IMAP uses the \Seen flag for dedup, so the watermark hint is unused here.
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._pool, _imap_fetch)
 
@@ -267,7 +268,8 @@ class GmailAPIFetcher:
     def __init__(self):
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gmail")
 
-    async def fetch_unread_emails(self) -> List[Dict[str, Any]]:
+    async def fetch_unread_emails(self, watermarks=None) -> List[Dict[str, Any]]:
+        # Gmail uses the UNREAD label for dedup, so the watermark hint is unused.
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(self._pool, self._fetch)
 
@@ -444,27 +446,38 @@ class GraphAPIFetcher:
 
         return results
 
-    def _fetch(self) -> List[Dict[str, Any]]:
+    def _fetch(self, watermarks: Dict[str, datetime]) -> List[Dict[str, Any]]:
         import requests
         from datetime import timedelta
 
         headers = {"Authorization": f"Bearer {self._token()}"}
         allowed_exts = self._allowed_extensions()
 
-        # Read-only: filter by receivedDateTime (last N minutes) instead of isRead,
-        # since we can't mark messages read without write permission.
-        since = (
-            datetime.now(timezone.utc) - timedelta(minutes=settings.GRAPH_LOOKBACK_MINUTES)
-        ).strftime("%Y-%m-%dT%H:%M:%SZ")
-        graph_filter = f"receivedDateTime ge {since}"
-        if allowed_exts:
-            graph_filter += " AND hasAttachments eq true"
+        # Read-only mode: we can't mark messages read, so we track how far we've
+        # already ingested per mailbox (watermarks[mailbox] = newest received_at in
+        # the DB) and fetch only messages newer than that. This survives any poll
+        # gap — restart, deploy, network blip — without losing email, unlike a
+        # fixed lookback window. GRAPH_LOOKBACK_MINUTES is the floor: it caps how
+        # far back the very first run (empty DB) reaches and absorbs minor clock
+        # skew. Re-fetched messages are deduped by the message_id guard in the DB.
+        lookback_floor = datetime.now(timezone.utc) - timedelta(
+            minutes=settings.GRAPH_LOOKBACK_MINUTES
+        )
 
         mailboxes = [m.strip() for m in settings.GRAPH_USER_ID.split(",") if m.strip()]
         results: List[Dict[str, Any]] = []
 
         for mailbox in mailboxes:
             try:
+                # Start from the newest email we already have for this mailbox, but
+                # never reach further back than the lookback floor.
+                watermark = watermarks.get(mailbox.lower())
+                since_dt = max(watermark, lookback_floor) if watermark else lookback_floor
+                since = since_dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                graph_filter = f"receivedDateTime ge {since}"
+                if allowed_exts:
+                    graph_filter += " AND hasAttachments eq true"
+
                 results.extend(
                     self._fetch_mailbox(requests, headers, mailbox, allowed_exts, graph_filter)
                 )
@@ -505,9 +518,11 @@ class GraphAPIFetcher:
     def __init__(self):
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="graph")
 
-    async def fetch_unread_emails(self) -> List[Dict[str, Any]]:
+    async def fetch_unread_emails(
+        self, watermarks: Dict[str, datetime] | None = None
+    ) -> List[Dict[str, Any]]:
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(self._pool, self._fetch)
+        return await loop.run_in_executor(self._pool, self._fetch, watermarks or {})
 
     def close(self):
         self._pool.shutdown(wait=False)
