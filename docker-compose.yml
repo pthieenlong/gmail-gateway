@@ -35,8 +35,12 @@ services:
       GRAPH_CLIENT_ID: ${GRAPH_CLIENT_ID:-}
       GRAPH_CLIENT_SECRET: ${GRAPH_CLIENT_SECRET:-}
       GRAPH_USER_ID: ${GRAPH_USER_ID:-}
-      GRAPH_ATTACHMENT_TYPES: ${GRAPH_ATTACHMENT_TYPES:-.xlsx,.xls,.pdf}
-      GRAPH_LOOKBACK_MINUTES: ${GRAPH_LOOKBACK_MINUTES:-10}
+      # Use `-` (not `:-`) so an explicit empty value in .env is honoured:
+      #   GRAPH_ATTACHMENT_TYPES=   → empty = accept all emails (no attachment filter)
+      # With `:-` an empty .env value would be treated as unset and the default
+      # would silently come back. The app's own config defaults cover an unset var.
+      GRAPH_ATTACHMENT_TYPES: ${GRAPH_ATTACHMENT_TYPES-}
+      GRAPH_LOOKBACK_MINUTES: ${GRAPH_LOOKBACK_MINUTES-10}
     volumes:
       - email_storage:/app/storage
     depends_on:
